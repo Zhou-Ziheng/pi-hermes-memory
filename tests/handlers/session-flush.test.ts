@@ -163,7 +163,11 @@ async function emit(
   }
 }
 
-const mockStore = { getMemoryEntries: () => [], getUserEntries: () => [] } as any;
+const mockStore = {
+  getMemoryEntries: () => [],
+  getUserEntries: () => [],
+  getRelatedFailureEntries: () => ["[correction] Existing durable correction."],
+} as any;
 
 function logicalChildArgs(call: { args: any[] }): string[] {
   const [cmd, args] = call.args;
@@ -666,6 +670,7 @@ describe("direct transport", () => {
     const options = directCalls[0][3] as { systemPrompt: string; userPrompt: string };
     assert.match(options.systemPrompt, /project-specific facts.*target "project"/i);
     assert.match(options.userPrompt, /--- Current Project Memory ---/);
+    assert.match(options.userPrompt, /Existing durable correction/);
   });
 
   it("falls back to subprocess with flush message shape when direct returns ok false", async () => {

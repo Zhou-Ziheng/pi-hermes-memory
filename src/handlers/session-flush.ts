@@ -112,6 +112,7 @@ function buildDirectFlushUserPrompt(
   store: MemoryStore,
   projectStore: MemoryStore | null,
   parts: string[],
+  projectName?: string | null,
 ): string {
   const sections = [
     "--- Current Memory ---",
@@ -119,6 +120,9 @@ function buildDirectFlushUserPrompt(
     "",
     "--- Current User Profile ---",
     store.getUserEntries().join(ENTRY_DELIMITER) || "(empty)",
+    "",
+    "--- Related Failures & Lessons ---",
+    store.getRelatedFailureEntries(parts.join("\n"), projectName).join(ENTRY_DELIMITER) || "(empty)",
   ];
 
   if (projectStore) {
@@ -203,7 +207,7 @@ export function setupSessionFlush(
                   "",
                   buildMemoryTargetRoutingGuidance(activeProjectStore !== null),
                 ].join("\n"),
-                userPrompt: buildDirectFlushUserPrompt(store, activeProjectStore, parts),
+                userPrompt: buildDirectFlushUserPrompt(store, activeProjectStore, parts, activeProjectName),
                 config,
                 timeoutMs,
                 signal: budget.signal,
@@ -237,8 +241,7 @@ export function setupSessionFlush(
           "",
           buildMemoryTargetRoutingGuidance(activeProjectStore !== null),
           "",
-          "--- Conversation ---",
-          parts.join("\n\n"),
+          buildDirectFlushUserPrompt(store, activeProjectStore, parts, activeProjectName),
         ].join("\n");
 
         try {

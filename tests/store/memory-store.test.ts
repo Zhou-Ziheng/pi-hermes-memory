@@ -174,6 +174,84 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       assert.equal(count, 1);
     });
 
+    it("rejects reworded facts in policy-only mode and preserves the existing entry", async () => {
+      const store = new MemoryStore(makeConfig({ memoryMode: "policy-only" }));
+      await store.loadFromDisk();
+      const original = "CI Green sends success notifications when all observed checks pass, even without a repair.";
+      assert.ok((await store.add("user", original)).success);
+      const result = await store.add("user", "CI Green sends notifications when all observed checks pass, even without performing a repair.");
+      assert.equal(result.success, false);
+      assert.match(result.error!, /Similar memory already exists/);
+      assert.match(result.error!, /memory_replace/);
+      assert.deepEqual(store.getUserEntries(), [original]);
+    });
+
+    it("requires explicit replacement for near-identical facts with changed meaning", async () => {
+      const store = new MemoryStore(makeConfig({ memoryMode: "policy-only" }));
+      await store.loadFromDisk();
+      const original = "CI Green uses a two hour deadline for each unfinished observed check.";
+      const updated = "CI Green uses a six hour deadline for each unfinished observed check.";
+      assert.ok((await store.add("memory", original)).success);
+      assert.equal((await store.add("memory", updated)).success, false);
+      assert.deepEqual(store.getMemoryEntries(), [original]);
+      assert.ok((await store.replace("memory", original, updated)).success);
+      assert.deepEqual(store.getMemoryEntries(), [updated]);
+    });
+
+    it("guards atomic add plans without committing partial operations", async () => {
+      const store = new MemoryStore(makeConfig({ memoryMode: "policy-only" }));
+      await store.loadFromDisk();
+      const original = "CI Green sends success notifications when all observed checks pass, even without a repair.";
+      assert.ok((await store.add("memory", original)).success);
+      const result = await store.applyMutationPlan("memory", [
+        { action: "add", content: "Development tools include pnpm." },
+        { action: "add", content: "CI Green sends notifications when all observed checks pass, even without performing a repair." },
+      ]);
+      assert.equal(result.success, false);
+      assert.deepEqual(store.getMemoryEntries(), [original]);
+    });
+
+    it("checks concurrent writers against the latest persisted facts", async () => {
+      const config = makeConfig({ memoryMode: "policy-only" });
+      const first = new MemoryStore(config);
+      const second = new MemoryStore(config);
+      await Promise.all([first.loadFromDisk(), second.loadFromDisk()]);
+      const results = await Promise.all([
+        first.add("memory", "CI Green sends success notifications when all observed checks pass, even without a repair."),
+        second.add("memory", "CI Green sends notifications when all observed checks pass, even without performing a repair."),
+      ]);
+      assert.equal(results.filter((result) => result.success).length, 1);
+      await first.loadFromDisk();
+      assert.equal(first.getMemoryEntries().length, 1);
+    });
+
+    it("keeps failure similarity checks scoped to their project", async () => {
+      const store = new MemoryStore(makeConfig({ memoryMode: "policy-only" }));
+      await store.loadFromDisk();
+      const original = "CI Green sends success notifications when all observed checks pass, even without a repair.";
+      assert.ok((await store.addFailure(original, { category: "convention", project: "alpha" })).success);
+      assert.ok((await store.addFailure(original, { category: "convention", project: "beta" })).success);
+      const result = await store.addFailure("CI Green sends notifications when all observed checks pass, even without performing a repair.", {
+        category: "convention", project: "alpha",
+      });
+      assert.equal(result.success, false);
+      assert.equal(store.getAllFailureEntries().length, 2);
+    });
+
+    it("selects bounded failure context with global and current-project facts", async () => {
+      const store = new MemoryStore(makeConfig({ memoryMode: "policy-only" }));
+      await store.loadFromDisk();
+      assert.ok((await store.addFailure("Global notification configuration.", { category: "convention" })).success);
+      assert.ok((await store.addFailure("Alpha notification configuration.", { category: "convention", project: "alpha" })).success);
+      assert.ok((await store.addFailure("Beta notification configuration.", { category: "convention", project: "beta" })).success);
+      const entries = store.getRelatedFailureEntries("notification configuration", "alpha");
+      assert.equal(entries.length, 2);
+      assert.ok(entries.some((entry) => entry.includes("Global")));
+      assert.ok(entries.some((entry) => entry.includes("Alpha")));
+      assert.ok(entries.every((entry) => !entry.includes("Beta")));
+      assert.ok(entries.join("").length <= 12_000);
+    });
+
     it("returns error when content would exceed char limit", async () => {
       const store = new MemoryStore(makeConfig({ memoryCharLimit: 50 }));
       await store.loadFromDisk();

@@ -274,6 +274,7 @@ describe("setupCorrectionDetector handler", () => {
       store: {
         getMemoryEntries: () => ["existing entry"],
         getUserEntries: () => [],
+        getRelatedFailureEntries: () => ["[correction] Existing durable correction."],
         addFailure: async () => {
           failureCount += 1;
         },
@@ -294,6 +295,7 @@ describe("setupCorrectionDetector handler", () => {
   const mockStore = {
     getMemoryEntries: () => ["existing entry"],
     getUserEntries: () => [],
+    getRelatedFailureEntries: () => [],
   } as any;
 
   const config = {
@@ -427,8 +429,8 @@ describe("setupCorrectionDetector handler", () => {
     assert.strictEqual(execCalls.length, firstCallCount, "second correction should be rate-limited");
   });
 
-  it("syncs direct correction saves into SQLite", async () => {
-    const pi = createMockPi();
+  it("syncs fallback correction saves into SQLite", async () => {
+    const pi = createMockPi({ code: 1, stdout: "", stderr: "review unavailable" });
     const correctionStore = new MemoryStore({ ...config, memoryDir: tmpDir } as any);
     await correctionStore.loadFromDisk();
     registerMemoryTool(pi, correctionStore, null, dbManager);
@@ -450,8 +452,8 @@ describe("setupCorrectionDetector handler", () => {
     assert.strictEqual(failures[0].project, null);
   });
 
-  it("saves the latest user message as the correction failure", async () => {
-    const pi = createMockPi();
+  it("saves the latest user message when review is unavailable", async () => {
+    const pi = createMockPi({ code: 1, stdout: "", stderr: "review unavailable" });
     const correctionStore = new MemoryStore({ ...config, memoryDir: tmpDir } as any);
     await correctionStore.loadFromDisk();
     setupCorrectionDetector(pi, correctionStore, null, config);
@@ -474,8 +476,8 @@ describe("setupCorrectionDetector handler", () => {
     assert.doesNotMatch(failures[0], /First, use Maven/i);
   });
 
-  it("syncs project correction saves into SQLite with project scope", async () => {
-    const pi = createMockPi();
+  it("syncs project fallback correction saves into SQLite with project scope", async () => {
+    const pi = createMockPi({ code: 1, stdout: "", stderr: "review unavailable" });
     const correctionStore = new MemoryStore({ ...config, memoryDir: tmpDir } as any);
     await correctionStore.loadFromDisk();
     const projectStore = {
@@ -501,8 +503,8 @@ describe("setupCorrectionDetector handler", () => {
     assert.strictEqual(getMemories(dbManager, { target: 'failure', project: null }).length, 0);
   });
 
-  it("does not break correction handling when SQLite sync fails", async () => {
-    const pi = createMockPi();
+  it("preserves fallback correction handling when SQLite sync fails", async () => {
+    const pi = createMockPi({ code: 1, stdout: "", stderr: "review unavailable" });
     const correctionStore = new MemoryStore({ ...config, memoryDir: tmpDir } as any);
     await correctionStore.loadFromDisk();
 
@@ -546,6 +548,7 @@ describe("setupCorrectionDetector handler", () => {
 
       assert.strictEqual(directCalls.length, 1);
       assert.strictEqual(execCalls.length, 0, "subprocess must not run on successful direct correction");
+      assert.strictEqual(store.getFailureCount(), 0, "handled review must not append a raw correction");
       assert.deepStrictEqual(
         notifyCalls.filter((n) => n.msg === "🔧 Correction detected — memory updated"),
         [{ msg: "🔧 Correction detected — memory updated", level: "info" }],
@@ -573,6 +576,7 @@ describe("setupCorrectionDetector handler", () => {
       assert.match(options.systemPrompt, /project-specific facts.*target "project"/i);
       assert.match(options.systemPrompt, /failures, corrections.*target "failure"/i);
       assert.match(options.userPrompt, /--- Current Project Memory ---/);
+      assert.match(options.userPrompt, /Existing durable correction/);
     });
 
     it("skips subprocess and omits memory-updated notify when direct ok with zero applied", async () => {
@@ -593,6 +597,7 @@ describe("setupCorrectionDetector handler", () => {
 
       assert.strictEqual(directCalls.length, 1);
       assert.strictEqual(execCalls.length, 0, "ok:true with appliedCount 0 still completes via direct transport");
+      assert.strictEqual(store.getFailureCount(), 0, "empty review must not append a raw correction");
       assert.strictEqual(
         notifyCalls.some((n) => n.msg === "🔧 Correction detected — memory updated"),
         false,

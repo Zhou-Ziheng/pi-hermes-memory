@@ -122,6 +122,7 @@ const defaultConfig = {
 const mockStore = {
   getMemoryEntries: () => ["existing memory entry"],
   getUserEntries: () => ["existing user entry"],
+  getRelatedFailureEntries: () => ["[correction] Existing durable correction."],
 } as any;
 
 function fireMessageEnd(role: string) {
@@ -924,6 +925,7 @@ describe("setupBackgroundReview", () => {
       currentMemory: "global fact",
       currentUser: "user preference",
       currentProject: "project convention",
+      relatedFailures: "[correction] Existing durable correction.",
     });
 
     assert.match(prompt, /project-specific facts.*target "project"/i);
@@ -937,6 +939,7 @@ describe("setupBackgroundReview", () => {
       currentMemory: "global fact",
       currentUser: "user preference",
       currentProject: null,
+      relatedFailures: "",
     });
 
     assert.match(prompt, /do not emit target "project"/i);
@@ -951,6 +954,7 @@ describe("setupBackgroundReview", () => {
       currentMemory: "uses pnpm",
       currentUser: "likes TypeScript",
       currentProject: "monorepo layout",
+      relatedFailures: "[correction] Existing durable correction.",
     };
 
     const subprocessPrompt = buildSubprocessReviewPrompt(input);
@@ -961,6 +965,9 @@ describe("setupBackgroundReview", () => {
     assert.doesNotMatch(directPrompt, /save using memory_add/i);
     assert.ok(subprocessPrompt.includes("uses pnpm"));
     assert.ok(directPrompt.includes("monorepo layout"));
+    assert.ok(directPrompt.includes("[correction] Existing durable correction."));
+    assert.ok(subprocessPrompt.includes("[correction] Existing durable correction."));
+    assert.match(subprocessPrompt, /Skip facts already represented/);
   });
 
   it("does not forward the turn abort signal to the child review", async () => {

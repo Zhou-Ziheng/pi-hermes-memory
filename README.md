@@ -267,6 +267,10 @@ The agent gets action-specific memory tools it can call proactively:
 
 Targets are `memory`, `user`, `project`, and `failure`. Failure writes may also include `category` and `failure_reason`.
 
+Search for equivalent facts before adding memory. Skip facts already represented; use `memory_replace` to incorporate changed or additional durable details into one concise entry. Each fact belongs in one canonical target. The shared store checks both individual adds and atomic add plans for close lexical matches, including in `policy-only` mode, and returns matching entries for explicit review instead of automatically merging them. Failure matching respects project scope.
+
+Background review, flush, and correction prompts include related global and current-project failure memories, capped at 20 entries and 12,000 characters. A handled correction review owns persistence; raw directive capture is a fallback when neither review transport succeeds.
+
 ### The `skill_manage` Tool
 
 The agent also gets a `skill_manage` tool for saving reusable procedures. The explicit name is intentional: it manages saved procedures and avoids being mistaken for generic skill discovery.

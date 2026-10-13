@@ -202,6 +202,9 @@ export function setupCorrectionDetector(
         "",
         "--- Current User Profile ---",
         currentUser || "(empty)",
+        "",
+        "--- Related Failures & Lessons ---",
+        store.getRelatedFailureEntries(recentParts.join("\n"), activeProjectName).join(ENTRY_DELIMITER) || "(empty)",
       ];
 
       if (currentProject !== null) {
@@ -222,6 +225,7 @@ export function setupCorrectionDetector(
       );
 
       let savedViaLlm = false;
+      let handledSubprocess = false;
 
       const runSubprocessCorrection = async (): Promise<void> => {
         const subprocessPrompt = [
@@ -237,7 +241,8 @@ export function setupCorrectionDetector(
           signal: ctx.signal,
           timeoutMs: 30000,
         });
-        if (result.code === 0 && result.stdout) {
+        handledSubprocess = result.code === 0;
+        if (handledSubprocess && result.stdout) {
           const output = result.stdout.trim();
           savedViaLlm = !!output && !output.toLowerCase().includes("nothing to save");
         }
@@ -281,9 +286,9 @@ export function setupCorrectionDetector(
         ctx.ui.notify("🔧 Correction detected — memory updated", "info");
       }
 
-      // Also save as a failure memory for learning
+      // Preserve the directive only when neither review transport handled it.
       try {
-        if (correctionText) {
+        if (!handledDirect && !handledSubprocess && correctionText) {
           const directive = extractCorrectionDirective(correctionText);
           const failureReason = "User corrected the agent";
           const scopedProjectName = activeProjectStore ? activeProjectName : null;

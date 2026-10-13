@@ -16,6 +16,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { scanContent } from "./content-scanner.js";
 import { normalizeMemoryLookupText } from "./memory-lookup.js";
+import { isSimilarMemory, memorySimilarity } from "./memory-similarity.js";
 import {
   ENTRY_DELIMITER,
   DEFAULT_MEMORY_CHAR_LIMIT,
@@ -266,6 +267,9 @@ export class MemoryStore {
       return this.successResponse(target, "Entry already exists (no duplicate added).");
     }
 
+    const similarityError = this.similarMemoryError(target, entries, content, project);
+    if (similarityError) return { success: false, error: similarityError };
+
     // Encode metadata: both dates = today
     const today = new Date().toISOString().split("T")[0];
     const encoded = this.encodeEntry(content, today, today, project);
@@ -438,6 +442,8 @@ export class MemoryStore {
           })) {
             return { success: false, error: "Memory mutation plan would add a duplicate entry." };
           }
+          const similarityError = this.similarMemoryError(target, plannedEntries, normalizedContent, operation.project);
+          if (similarityError) return { success: false, error: similarityError };
           plannedEntries.push(this.encodeEntry(normalizedContent, today, today, operation.project));
           continue;
         }
@@ -631,6 +637,27 @@ export class MemoryStore {
     return this.failureEntries.map((e) => this.stripMetadata(e));
   }
 
+  /** Bounded failure context for reviewers, including global and current-project lessons. */
+  getRelatedFailureEntries(query: string, project?: string | null): string[] {
+    const candidates = this.failureEntries
+      .map((entry) => this.decodeEntry(entry))
+      .filter((entry) => entry.project === null || entry.project === (project?.trim() || null))
+      .map((entry, index) => ({ text: entry.text, index, score: memorySimilarity(query, entry.text) }))
+      .filter((entry) => entry.score > 0)
+      .sort((left, right) => right.score - left.score || right.index - left.index);
+    const result: string[] = [];
+    let chars = 0;
+    for (const entry of candidates) {
+      if (result.length >= 20) break;
+      const length = entry.text.length + (result.length ? ENTRY_DELIMITER.length : 0);
+      if (chars + length > 12_000) continue;
+      if (result.includes(entry.text)) continue;
+      result.push(entry.text);
+      chars += length;
+    }
+    return result;
+  }
+
   getMemoryEntries(): string[] {
     return this.memoryEntries.map((e) => this.stripMetadata(e));
   }
@@ -703,6 +730,23 @@ export class MemoryStore {
       }
     }
     return undefined;
+  }
+
+  private similarMemoryError(
+    target: "memory" | "user" | "failure",
+    entries: string[],
+    content: string,
+    project?: string,
+  ): string | undefined {
+    const scope = project?.trim() || null;
+    const similar = entries
+      .map((entry) => this.decodeEntry(entry))
+      .filter((entry) => (target !== "failure" || entry.project === scope)
+        && isSimilarMemory(entry.text, content))
+      .slice(0, 3)
+      .map((entry) => entry.text);
+    if (!similar.length) return undefined;
+    return `Similar memory already exists. This add was not saved. If the fact is already covered, skip it. If it adds or changes durable details, use memory_replace with the full merged entry, preserving still-valid facts. Existing entries: ${JSON.stringify(similar)}`;
   }
 
   private areDistinctScopedFailureCopies(

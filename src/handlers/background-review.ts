@@ -45,6 +45,7 @@ export interface ReviewPromptInput {
   currentMemory: string;
   currentUser: string;
   currentProject: string | null;
+  relatedFailures: string;
 }
 
 export function buildSubprocessReviewPrompt(input: ReviewPromptInput): string {
@@ -58,6 +59,9 @@ export function buildSubprocessReviewPrompt(input: ReviewPromptInput): string {
     "",
     "--- Current User Profile ---",
     input.currentUser || "(empty)",
+    "",
+    "--- Related Failures & Lessons ---",
+    input.relatedFailures || "(empty)",
   ];
 
   if (input.currentProject !== null) {
@@ -84,6 +88,9 @@ export function buildDirectReviewUserPrompt(input: ReviewPromptInput): string {
     "",
     "--- Current User Profile ---",
     input.currentUser || "(empty)",
+    "",
+    "--- Related Failures & Lessons ---",
+    input.relatedFailures || "(empty)",
   ];
 
   if (input.currentProject !== null) {
@@ -263,6 +270,7 @@ export function setupBackgroundReview(
       const activeProjectName = resolveProjectName(projectName);
       const promptInput: ReviewPromptInput = {
         parts,
+        relatedFailures: store.getRelatedFailureEntries(parts.join("\n"), activeProjectName).join("\n§\n"),
         currentMemory: store.getMemoryEntries().join("\n§\n"),
         currentUser: store.getUserEntries().join("\n§\n"),
         currentProject: activeProjectStore ? activeProjectStore.getMemoryEntries().join("\n§\n") : null,
